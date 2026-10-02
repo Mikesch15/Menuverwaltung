@@ -267,3 +267,5 @@ textarea.input { min-height: 72px; resize: vertical; }
   background: var(--danger); color: #fff; font-size: .65rem; font-weight: 700; line-height: 1;
   border-radius: 99px; padding: 2px 5px; min-width: 16px; text-align: center;
 }
+.anleitung { padding-left: 1.2em; margin: 0 0 12px; }
+.anleitung li { margin-bottom: 8px; }

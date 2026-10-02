@@ -291,7 +291,7 @@ function render() {
 
   app.innerHTML = `
     <div class="shell">
-      <header class="topbar"><h1>${titel}</h1>${state.tab === 'plan' ? '<button class="btn" data-a="zufall">🎲 Vorschlag</button>' : ''}</header>
+      <header class="topbar"><h1>${titel}</h1>${installPrompt && !istInstalliert() ? '<button class="btn" data-a="installieren">📲 App</button>' : ''}${state.tab === 'plan' ? '<button class="btn" data-a="zufall">🎲 Vorschlag</button>' : ''}</header>
       ${inhalt}
     </div>
     ${state.tab === 'gerichte' ? '<button class="fab" data-a="gericht-neu" aria-label="Neues Gericht">+</button>' : ''}
@@ -434,6 +434,11 @@ function viewEinstellungen() {
           <button class="btn" data-a="kat-neu">Hinzufügen</button>
         </div>
       </section>
+      ${istInstalliert() ? '' : `<section class="card panel">
+        <h2>Als App installieren</h2>
+        <p class="muted small" style="margin-top:0">Menüplan auf den Startbildschirm legen und wie eine App öffnen.</p>
+        <button class="btn primary" data-a="installieren">📲 App installieren</button>
+      </section>`}
       <section class="card panel">
         <h2>Konto</h2>
         <p class="muted small" style="margin-top:0">Angemeldet als ${esc(state.session.user.email)}</p>
@@ -519,6 +524,7 @@ const aktionen = {
       render();
     } catch (e) { fehler(e); }
   },
+  installieren: () => installieren(),
   logout: async () => {
     if (state.channel) sb.removeChannel(state.channel);
     Object.assign(state, { haushalt: null, kategorien: [], gerichte: [], plan: [], zutaten: [], einkauf: [], channel: null });
@@ -996,6 +1002,51 @@ function zufallSheet() {
         document.getElementById('zufall-liste').innerHTML = zeigen();
       });
     },
+  });
+}
+
+/* ---------- Als App installieren ---------- */
+let installPrompt = null;
+const istInstalliert = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+window.addEventListener('beforeinstallprompt', (ev) => { ev.preventDefault(); installPrompt = ev; render(); });
+window.addEventListener('appinstalled', () => { installPrompt = null; toast('App installiert 🎉'); render(); });
+
+async function installieren() {
+  if (installPrompt) {
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    installPrompt = null;
+    render();
+  } else {
+    installAnleitungSheet();
+  }
+}
+
+function installAnleitungSheet() {
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const samsung = /SamsungBrowser/.test(ua);
+  const inApp = /Instagram|FBAN|FBAV|WhatsApp|Line\//.test(ua);
+  let schritte;
+  if (inApp) {
+    schritte = '<li>Diese Seite ist in einer anderen App geöffnet (z.B. WhatsApp). Tippe oben auf <strong>⋮</strong> und wähle <strong>«Im Browser öffnen»</strong>, dann nochmals «App installieren».</li>';
+  } else if (ios) {
+    schritte = `<li>Die Seite in <strong>Safari</strong> öffnen (in anderen Browsern geht es auf dem iPhone nicht).</li>
+      <li>Unten auf das <strong>Teilen-Symbol</strong> (Quadrat mit Pfeil nach oben) tippen.</li>
+      <li>Nach unten scrollen und <strong>«Zum Home-Bildschirm»</strong> wählen, dann «Hinzufügen».</li>`;
+  } else if (samsung) {
+    schritte = `<li>Unten rechts auf das <strong>Menü ≡</strong> tippen.</li>
+      <li><strong>«Seite hinzufügen zu»</strong> → <strong>«Startbildschirm»</strong> wählen.</li>`;
+  } else {
+    schritte = `<li>Oben rechts auf das <strong>Menü ⋮</strong> tippen.</li>
+      <li><strong>«App installieren»</strong> oder <strong>«Zum Startbildschirm hinzufügen»</strong> wählen.</li>
+      <li>Falls das fehlt: Seite einmal neu laden und ein paar Sekunden warten.</li>`;
+  }
+  openSheet({
+    titel: '📲 Als App installieren',
+    body: `<ol class="anleitung">${schritte}</ol>
+      <p class="muted small">Danach startet der Menüplan wie eine normale App vom Startbildschirm – ohne Browserleiste.</p>`,
+    foot: '<span class="spacer"></span><button class="btn primary" data-close>OK</button>',
   });
 }
 
