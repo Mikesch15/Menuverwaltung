@@ -14,6 +14,15 @@ als Web-App, die sich auf dem Handy wie eine App auf den Startbildschirm legen l
 - **Zutaten & Einkaufsliste 🛒**: pro Gericht eine Zutatenliste mit Mengen. Nach dem Einplanen
   wählt man aus, welche Zutaten in den gemeinsamen Warenkorb kommen (bereits vorhandene sind
   abgewählt). In der Einkaufsliste abhaken, eigene Artikel ergänzen, Erledigtes entfernen.
+- **Woche automatisch füllen / letzte Woche übernehmen**, Gerichte per Ziehen (⠿) auf einen
+  anderen Tag verschieben, **Wer kocht?**, **Reste** einplanen, **👍/👎-Bewertung**.
+- **Einkaufsliste nach Laden-Abteilungen**, gleiche Artikel zusammengefasst (Mengen addiert),
+  **Vorrat** («haben wir immer») automatisch abgewählt, **Portionen** rechnen Mengen um,
+  funktioniert **offline** (Änderungen werden später synchronisiert).
+- **Rezept aus Link übernehmen** (Edge Function `menu-rezept-import`), **Fotos**, Kochzeit
+  («⏱ Schnell»-Filter), Zubereitung.
+- **Push-Erinnerungen** (Edge Function `menu-erinnerung`, stündlich via pg_cron).
+- **Statistik**: am häufigsten gegessen, lange nicht mehr, beste Bewertung, wer hat gekocht.
 - **Vorschlag 🎲**: schlägt Gerichte vor, die ihr länger nicht mehr gegessen habt,
   und plant sie mit einem Tipp für den nächsten freien Tag ein.
 - **Gemeinsame Daten**: beide melden sich mit eigenem Konto an und sind über einen
@@ -23,9 +32,9 @@ als Web-App, die sich auf dem Handy wie eine App auf den Startbildschirm legen l
 
 ## Technik
 
-- Reines HTML/CSS/JavaScript ohne Build-Schritt (`index.html`, `app.js`, `style.css`).
+- Reines HTML/CSS/JavaScript ohne Build-Schritt (`index.html`, `app.js`, `logik.js`, `style.css`).
 - Backend: Supabase (Projekt «Tulpenweg-Sanierung»), Tabellen mit Präfix `menu_`.
-  Schema inkl. Row Level Security: `supabase/migrations/`.
+  Schema inkl. Row Level Security: `supabase/migrations/`, Edge Functions: `supabase/functions/`.
 - Hosting: GitHub Pages über `.github/workflows/pages.yml`.
 
 ## Einrichtung
