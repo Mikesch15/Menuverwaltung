@@ -1,0 +1,13 @@
+{
+  "name": "Menüplan",
+  "short_name": "Menüplan",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f5f1",
+  "theme_color": "#1f6f5c",
+  "lang": "de-CH",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
