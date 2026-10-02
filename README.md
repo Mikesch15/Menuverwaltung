@@ -9,6 +9,11 @@ als Web-App, die sich auf dem Handy wie eine App auf den Startbildschirm legen l
   Gerichte pro Tag eintragen, als gekocht abhaken, Notizen ergänzen, Datum verschieben.
 - **Gerichte-Sammlung**: nach Kategorien (Teigwaren, Kartoffeln, Reis, Weitere, Desserts …),
   Suche, Favoriten, Notiz/Rezept-Link, «zuletzt gegessen vor …».
+- **Wochenende / unter der Woche**: pro Gericht einstellbar. Beim Planen eines Tages werden
+  passende Gerichte angezeigt (umschaltbar), Vorschläge berücksichtigen den Tag.
+- **Zutaten & Einkaufsliste 🛒**: pro Gericht eine Zutatenliste mit Mengen. Nach dem Einplanen
+  wählt man aus, welche Zutaten in den gemeinsamen Warenkorb kommen (bereits vorhandene sind
+  abgewählt). In der Einkaufsliste abhaken, eigene Artikel ergänzen, Erledigtes entfernen.
 - **Vorschlag 🎲**: schlägt Gerichte vor, die ihr länger nicht mehr gegessen habt,
   und plant sie mit einem Tipp für den nächsten freien Tag ein.
 - **Gemeinsame Daten**: beide melden sich mit eigenem Konto an und sind über einen

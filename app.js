@@ -13,6 +13,8 @@ const state = {
   kategorien: [],
   gerichte: [],
   plan: [],
+  zutaten: [],
+  einkauf: [],
   tab: localGet('tab') || 'plan',
   weekStart: mondayOf(new Date()),
   filterKat: null,
@@ -136,10 +138,14 @@ async function ladeTabelle(name) {
   if (name === 'menu_kategorien') state.kategorien = await db(sb.from(name).select('*').eq('haushalt_id', hid).order('sortierung').order('name'));
   if (name === 'menu_gerichte') state.gerichte = await db(sb.from(name).select('*').eq('haushalt_id', hid).order('name'));
   if (name === 'menu_plan') state.plan = await db(sb.from(name).select('*').eq('haushalt_id', hid).order('datum').order('erstellt_am'));
+  if (name === 'menu_zutaten') state.zutaten = await db(sb.from(name).select('*').eq('haushalt_id', hid).order('sortierung').order('erstellt_am'));
+  if (name === 'menu_einkauf') state.einkauf = await db(sb.from(name).select('*').eq('haushalt_id', hid).order('erstellt_am'));
 }
 
+const TABELLEN = ['menu_kategorien', 'menu_gerichte', 'menu_plan', 'menu_zutaten', 'menu_einkauf'];
+
 async function ladeAlles() {
-  await Promise.all(['menu_kategorien', 'menu_gerichte', 'menu_plan'].map(ladeTabelle));
+  await Promise.all(TABELLEN.map(ladeTabelle));
 }
 
 function abonnieren() {
@@ -147,7 +153,7 @@ function abonnieren() {
   const hid = state.haushalt.id;
   const ch = sb.channel('menu-' + hid);
   let timer = {};
-  for (const table of ['menu_kategorien', 'menu_gerichte', 'menu_plan']) {
+  for (const table of TABELLEN) {
     ch.on('postgres_changes', { event: '*', schema: 'public', table, filter: `haushalt_id=eq.${hid}` }, () => {
       clearTimeout(timer[table]);
       timer[table] = setTimeout(async () => {
@@ -270,15 +276,17 @@ function renderSetup() {
 
 function render() {
   if (!state.haushalt) return;
-  const aktiv = document.activeElement;
-  const fokusSuche = aktiv && aktiv.id === 'suche';
-  const caret = fokusSuche ? aktiv.selectionStart : null;
+  // Eingaben, Fokus und Scroll-Position über das Neuzeichnen hinweg erhalten
+  const aktivId = document.activeElement?.id;
+  const caret = aktivId && document.activeElement.selectionStart;
+  const werte = Object.fromEntries(['ek-name', 'ek-menge'].map((id) => [id, document.getElementById(id)?.value || '']));
   const scroll = window.scrollY;
 
-  const titel = { plan: 'Menüplan', gerichte: 'Gerichte', einstellungen: 'Einstellungen' }[state.tab];
+  const titel = { plan: 'Menüplan', gerichte: 'Gerichte', einkauf: 'Einkaufsliste', einstellungen: 'Einstellungen' }[state.tab];
   let inhalt = '';
   if (state.tab === 'plan') inhalt = viewPlan();
   if (state.tab === 'gerichte') inhalt = viewGerichte();
+  if (state.tab === 'einkauf') inhalt = viewEinkauf();
   if (state.tab === 'einstellungen') inhalt = viewEinstellungen();
 
   app.innerHTML = `
@@ -288,14 +296,15 @@ function render() {
     </div>
     ${state.tab === 'gerichte' ? '<button class="fab" data-a="gericht-neu" aria-label="Neues Gericht">+</button>' : ''}
     <nav class="tabbar">
-      ${[['plan', '📅', 'Plan'], ['gerichte', '📖', 'Gerichte'], ['einstellungen', '⚙️', 'Einstellungen']]
-        .map(([t, i, l]) => `<button data-a="tab" data-tab="${t}" class="${state.tab === t ? 'active' : ''}"><span class="ico">${i}</span>${l}</button>`).join('')}
+      ${[['plan', '📅', 'Plan'], ['gerichte', '📖', 'Gerichte'], ['einkauf', '🛒', 'Einkauf'], ['einstellungen', '⚙️', 'Mehr']]
+        .map(([t, i, l]) => `<button data-a="tab" data-tab="${t}" class="${state.tab === t ? 'active' : ''}"><span class="ico">${i}${t === 'einkauf' && offeneArtikel() ? `<span class="tab-badge">${offeneArtikel()}</span>` : ''}</span>${l}</button>`).join('')}
     </nav>`;
 
-  if (fokusSuche) {
-    const s = document.getElementById('suche');
-    s.focus();
-    s.setSelectionRange(caret, caret);
+  for (const [id, wert] of Object.entries(werte)) { const el = document.getElementById(id); if (el && wert) el.value = wert; }
+  const fokus = aktivId && ['suche', 'ek-name', 'ek-menge'].includes(aktivId) && document.getElementById(aktivId);
+  if (fokus) {
+    fokus.focus();
+    if (caret != null) fokus.setSelectionRange(caret, caret);
   }
   window.scrollTo(0, scroll);
 }
@@ -344,7 +353,8 @@ function viewGerichte() {
   const stats = statistik();
   const q = norm(state.suche);
   const treffer = state.gerichte.filter((g) =>
-    (!state.filterKat || g.kategorie_id === state.filterKat || (state.filterKat === 'fav' && g.favorit)) &&
+    (!state.filterKat || g.kategorie_id === state.filterKat || (state.filterKat === 'fav' && g.favorit) ||
+      (['woche', 'wochenende'].includes(state.filterKat) && (g.wann || 'immer') !== 'immer' && g.wann === state.filterKat)) &&
     (!q || norm(g.name).includes(q) || norm(g.notiz).includes(q)));
 
   const gruppen = [...state.kategorien, { id: null, name: 'Ohne Kategorie', farbe: '#999' }]
@@ -354,6 +364,8 @@ function viewGerichte() {
   const chips = [
     `<button class="chip ${!state.filterKat ? 'active' : ''}" data-a="filter" data-k="">Alle (${state.gerichte.length})</button>`,
     `<button class="chip ${state.filterKat === 'fav' ? 'active' : ''}" data-a="filter" data-k="fav">★ Favoriten</button>`,
+    `<button class="chip ${state.filterKat === 'woche' ? 'active' : ''}" data-a="filter" data-k="woche">Unter der Woche</button>`,
+    `<button class="chip ${state.filterKat === 'wochenende' ? 'active' : ''}" data-a="filter" data-k="wochenende">Wochenende</button>`,
     ...state.kategorien.map((k) => `<button class="chip ${state.filterKat === k.id ? 'active' : ''}" data-a="filter" data-k="${k.id}"><span class="dot" style="background:${esc(k.farbe)}"></span>${esc(k.name)}</button>`),
   ].join('');
 
@@ -366,11 +378,34 @@ function viewGerichte() {
         ${items.map((g) => {
           const s = stats.get(g.id);
           return `<li><button class="dish" data-a="gericht" data-id="${g.id}">
-            <span class="name">${g.favorit ? '<span class="fav">★</span> ' : ''}${esc(g.name)}</span>
+            <span class="name">${g.favorit ? '<span class="fav">★</span> ' : ''}${esc(g.name)} ${wannTag(g)}${zutatenVon(g.id).length ? ' <span class="tag">🛒</span>' : ''}</span>
             <span class="meta">${s ? seitText(s.zuletzt) : ''}</span>
           </button></li>`;
         }).join('')}
       </ul>`).join('') : `<div class="empty">Keine Gerichte gefunden.${q ? `<br><br><button class="btn" data-a="gericht-neu" data-name="${esc(state.suche)}">«${esc(state.suche)}» hinzufügen</button>` : ''}</div>`}`;
+}
+
+const offeneArtikel = () => state.einkauf.filter((e) => !e.erledigt).length;
+
+function viewEinkauf() {
+  const offen = state.einkauf.filter((e) => !e.erledigt);
+  const erledigt = state.einkauf.filter((e) => e.erledigt);
+  const zeile = (e) => `<li class="ek ${e.erledigt ? 'done' : ''}">
+      <button class="cb" data-a="ek-toggle" data-id="${e.id}" aria-label="Gekauft">✓</button>
+      <button class="title" data-a="ek-toggle" data-id="${e.id}">${esc(e.name)}${e.menge ? ` <span class="muted">· ${esc(e.menge)}</span>` : ''}${e.quelle ? `<span class="note">${esc(e.quelle)}</span>` : ''}</button>
+      <button class="btn icon ghost" data-a="ek-weg" data-id="${e.id}" aria-label="Entfernen">✕</button>
+    </li>`;
+  return `
+    <form class="row" id="ek-form" style="margin-bottom:12px">
+      <input class="input grow" id="ek-name" placeholder="Artikel hinzufügen …" autocomplete="off" enterkeyhint="done">
+      <input class="input menge" id="ek-menge" placeholder="Menge" autocomplete="off" enterkeyhint="done">
+      <button class="btn primary icon" aria-label="Hinzufügen">＋</button>
+    </form>
+    ${offen.length ? `<ul class="ek-list card">${offen.map(zeile).join('')}</ul>`
+      : '<div class="empty">Der Warenkorb ist leer.<br><span class="small">Beim Einplanen eines Gerichts mit Zutaten könnt ihr diese hier hinzufügen.</span></div>'}
+    ${erledigt.length ? `
+      <div class="cat-title">Im Korb <span class="count">${erledigt.length}</span><span style="flex:1"></span><button class="btn small" data-a="ek-aufraeumen">Entfernen</button></div>
+      <ul class="ek-list card">${erledigt.map(zeile).join('')}</ul>` : ''}`;
 }
 
 function viewEinstellungen() {
@@ -463,9 +498,30 @@ const aktionen = {
       render();
     } catch (e) { fehler(e); }
   },
+  'ek-toggle': async (el) => {
+    const e = state.einkauf.find((x) => x.id === el.dataset.id);
+    e.erledigt = !e.erledigt;
+    render();
+    try { await db(sb.from('menu_einkauf').update({ erledigt: e.erledigt }).eq('id', e.id)); } catch (err) { fehler(err); }
+  },
+  'ek-weg': async (el) => {
+    try {
+      await db(sb.from('menu_einkauf').delete().eq('id', el.dataset.id));
+      state.einkauf = state.einkauf.filter((x) => x.id !== el.dataset.id);
+      render();
+    } catch (e) { fehler(e); }
+  },
+  'ek-aufraeumen': async () => {
+    const ids = state.einkauf.filter((e) => e.erledigt).map((e) => e.id);
+    try {
+      await db(sb.from('menu_einkauf').delete().in('id', ids));
+      state.einkauf = state.einkauf.filter((e) => !e.erledigt);
+      render();
+    } catch (e) { fehler(e); }
+  },
   logout: async () => {
     if (state.channel) sb.removeChannel(state.channel);
-    Object.assign(state, { haushalt: null, kategorien: [], gerichte: [], plan: [], channel: null });
+    Object.assign(state, { haushalt: null, kategorien: [], gerichte: [], plan: [], zutaten: [], einkauf: [], channel: null });
     await sb.auth.signOut();
   },
 };
@@ -483,6 +539,21 @@ app.addEventListener('click', (ev) => {
   const el = ev.target.closest('[data-a]');
   if (!el || !aktionen[el.dataset.a]) return;
   aktionen[el.dataset.a](el);
+});
+app.addEventListener('submit', async (ev) => {
+  if (ev.target.id !== 'ek-form') return;
+  ev.preventDefault();
+  const name = document.getElementById('ek-name').value.trim();
+  const menge = document.getElementById('ek-menge').value.trim() || null;
+  if (!name) return;
+  try {
+    const row = await db(sb.from('menu_einkauf').insert({ haushalt_id: state.haushalt.id, name, menge }).select().single());
+    state.einkauf.push(row);
+    document.getElementById('ek-name').value = '';
+    document.getElementById('ek-menge').value = '';
+    render();
+    document.getElementById('ek-name').focus();
+  } catch (e) { fehler(e); }
 });
 app.addEventListener('input', (ev) => {
   if (ev.target.id === 'suche') { state.suche = ev.target.value; render(); }
@@ -514,7 +585,7 @@ function openSheet({ titel, body, foot = '', actions = {}, onOpen }) {
         ${foot ? `<div class="sheet-foot">${foot}</div>` : ''}
       </div>
     </div>`;
-  onOpen && onOpen(sheetRoot);
+  onOpen && onOpen(sheetRoot.querySelector('.sheet')); // Listener hängen am Dialog und verschwinden mit ihm
 }
 function closeSheet() { sheetRoot.innerHTML = ''; sheetActions = {}; }
 
@@ -530,23 +601,34 @@ function katOptionen(selected) {
     .map((k) => `<option value="${k.id}" ${k.id === selected ? 'selected' : ''}>${esc(k.name)}</option>`).join('');
 }
 
+const WANN = { immer: 'Immer', woche: 'Unter der Woche', wochenende: 'Wochenende' };
+const WANN_KURZ = { woche: 'Woche', wochenende: 'WE' };
+const istWochenende = (datum) => [0, 6].includes(parseIso(datum).getDay());
+const tagTyp = (datum) => (istWochenende(datum) ? 'wochenende' : 'woche');
+const passtZuTag = (g, datum) => !g.wann || g.wann === 'immer' || g.wann === tagTyp(datum);
+const zutatenVon = (gid) => state.zutaten.filter((z) => z.gericht_id === gid);
+
+function wannTag(g) {
+  return WANN_KURZ[g.wann] ? `<span class="tag ${g.wann}">${WANN_KURZ[g.wann]}</span>` : '';
+}
+
 function pickItem(g, stats, extraKlasse = '') {
   const k = katById(g.kategorie_id);
   const s = stats.get(g.id);
   return `<li><button class="pick ${extraKlasse}" data-a="waehlen" data-id="${g.id}">
     <span class="dot" style="background:${esc(k?.farbe || '')}"></span>
-    <span class="name">${g.favorit ? '★ ' : ''}${esc(g.name)}</span>
+    <span class="name">${g.favorit ? '★ ' : ''}${esc(g.name)} ${wannTag(g)}</span>
     <span class="meta">${s ? seitText(s.zuletzt) : 'noch nie'}</span>
   </button></li>`;
 }
 
 /** Vorschläge: Gerichte, die am längsten nicht mehr gekocht wurden (mit etwas Zufall). */
-function vorschlaege(anzahl = 3) {
+function vorschlaege(anzahl, datum) {
   const stats = statistik();
   const geplant = new Set(state.plan.filter((p) => p.datum >= todayIso()).map((p) => p.gericht_id));
   const desserts = new Set(state.kategorien.filter((k) => norm(k.name).startsWith('dessert')).map((k) => k.id));
   const kandidaten = state.gerichte
-    .filter((g) => !geplant.has(g.id) && !desserts.has(g.kategorie_id))
+    .filter((g) => !geplant.has(g.id) && !desserts.has(g.kategorie_id) && passtZuTag(g, datum))
     .map((g) => {
       const s = stats.get(g.id);
       const tage = s ? tageSeit(s.zuletzt) : 120;
@@ -565,6 +647,15 @@ async function eintragHinzufuegen(datum, titel, gerichtId) {
   return row;
 }
 
+/** Nach dem Einplanen: Hinweis zeigen und – falls Zutaten hinterlegt sind – den Warenkorb-Dialog öffnen. */
+function nachEinplanen(eintrag) {
+  closeSheet();
+  render();
+  const d = parseIso(eintrag.datum);
+  toast(`«${eintrag.titel}» für ${WT_LANG[d.getDay()]}, ${fmtKurz(d)} geplant.`);
+  if (eintrag.gericht_id && zutatenVon(eintrag.gericht_id).length) warenkorbSheet(eintrag);
+}
+
 async function gerichtSpeichern(daten, id) {
   if (id) {
     const row = await db(sb.from('menu_gerichte').update(daten).eq('id', id).select().single());
@@ -579,33 +670,33 @@ async function gerichtSpeichern(daten, id) {
 
 function pickerSheet(datum) {
   const d = parseIso(datum);
+  const typ = tagTyp(datum);
   let suche = '';
+  let nurPassende = true;
 
   const liste = () => {
     const stats = statistik();
     const q = norm(suche);
-    let html = '';
+    let html = `<div class="chips"><button class="chip ${nurPassende ? 'active' : ''}" data-a="passend">${typ === 'wochenende' ? 'Nur Wochenend-Menüs' : 'Nur Menüs für unter der Woche'}</button></div>`;
     if (!q) {
-      html += `<div class="section-label">Vorschläge – länger nicht gegessen</div><ul class="pick-list">${vorschlaege().map((g) => pickItem(g, stats, 'suggest')).join('')}</ul>`;
-    } else {
-      const exakt = state.gerichte.some((g) => norm(g.name) === q);
-      if (!exakt) {
-        html += `<ul class="pick-list">
-          <li><button class="pick free" data-a="frei">＋ «${esc(suche.trim())}» eintragen</button></li>
-          <li><button class="pick free" data-a="frei-speichern">＋ «${esc(suche.trim())}» eintragen & in Gerichte speichern</button></li>
-        </ul>`;
-      }
+      html += `<div class="section-label">Vorschläge – länger nicht gegessen</div><ul class="pick-list">${vorschlaege(3, datum).map((g) => pickItem(g, stats, 'suggest')).join('')}</ul>`;
+    } else if (!state.gerichte.some((g) => norm(g.name) === q)) {
+      html += `<ul class="pick-list">
+        <li><button class="pick free" data-a="frei">＋ «${esc(suche.trim())}» eintragen</button></li>
+        <li><button class="pick free" data-a="frei-speichern">＋ «${esc(suche.trim())}» eintragen & in Gerichte speichern</button></li>
+      </ul>`;
     }
-    const treffer = state.gerichte.filter((g) => !q || norm(g.name).includes(q));
+    const treffer = state.gerichte.filter((g) => (!q || norm(g.name).includes(q)) && (!nurPassende || q || passtZuTag(g, datum)));
+    let gefunden = false;
     for (const k of [...state.kategorien, { id: null, name: 'Ohne Kategorie' }]) {
       const items = treffer.filter((g) => (g.kategorie_id || null) === k.id);
       if (!items.length) continue;
+      gefunden = true;
       html += `<div class="section-label">${esc(k.name)}</div><ul class="pick-list">${items.map((g) => pickItem(g, stats)).join('')}</ul>`;
     }
-    return html || '<div class="empty">Keine Treffer</div>';
+    return gefunden || q ? html : html + '<div class="empty">Keine passenden Gerichte</div>';
   };
-
-  const fertig = (titel) => { closeSheet(); render(); toast(`«${titel}» für ${WT_LANG[d.getDay()]} geplant.`); };
+  const neuZeichnen = () => { sheetRoot.querySelector('#pick-liste').innerHTML = liste(); };
 
   openSheet({
     titel: `${WT_LANG[d.getDay()]}, ${fmtKurz(d)}`,
@@ -614,26 +705,25 @@ function pickerSheet(datum) {
       </div>
       <div id="pick-liste">${liste()}</div>`,
     actions: {
+      passend: () => { nurPassende = !nurPassende; neuZeichnen(); },
       waehlen: async (el) => {
         const g = gerichtById(el.dataset.id);
-        try { await eintragHinzufuegen(datum, g.name, g.id); fertig(g.name); } catch (e) { fehler(e); }
+        try { nachEinplanen(await eintragHinzufuegen(datum, g.name, g.id)); } catch (e) { fehler(e); }
       },
       frei: async () => {
-        const t = suche.trim();
-        try { await eintragHinzufuegen(datum, t, null); fertig(t); } catch (e) { fehler(e); }
+        try { nachEinplanen(await eintragHinzufuegen(datum, suche.trim(), null)); } catch (e) { fehler(e); }
       },
       'frei-speichern': async () => {
         const t = suche.trim();
         try {
-          const g = await gerichtSpeichern({ name: t, kategorie_id: state.filterKat && state.filterKat !== 'fav' ? state.filterKat : null });
-          await eintragHinzufuegen(datum, t, g.id);
-          fertig(t);
+          const g = await gerichtSpeichern({ name: t, kategorie_id: state.filterKat && katById(state.filterKat) ? state.filterKat : null });
+          nachEinplanen(await eintragHinzufuegen(datum, t, g.id));
         } catch (e) { fehler(e); }
       },
     },
     onOpen: (root) => {
       const inp = root.querySelector('#pick-suche');
-      inp.addEventListener('input', () => { suche = inp.value; root.querySelector('#pick-liste').innerHTML = liste(); });
+      inp.addEventListener('input', () => { suche = inp.value; neuZeichnen(); });
       inp.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter') { ev.preventDefault(); root.querySelector('#pick-liste .pick')?.click(); }
       });
@@ -642,23 +732,71 @@ function pickerSheet(datum) {
   });
 }
 
+/** Zutaten eines geplanten Gerichts auswählen und in den Warenkorb legen. */
+function warenkorbSheet(eintrag) {
+  const zutaten = zutatenVon(eintrag.gericht_id);
+  const offen = new Set(state.einkauf.filter((e) => !e.erledigt).map((e) => norm(e.name)));
+  const d = parseIso(eintrag.datum);
+  const zaehlen = () => {
+    const n = sheetRoot.querySelectorAll('input[data-zutat]:checked').length;
+    const btn = sheetRoot.querySelector('[data-a=in-korb]');
+    btn.textContent = n ? `${n} in den Warenkorb` : 'Nichts hinzufügen';
+  };
+  openSheet({
+    titel: '🛒 Zutaten einkaufen?',
+    body: `
+      <p class="muted small" style="margin-top:0">${esc(eintrag.titel)} · ${WT_LANG[d.getDay()]}, ${fmtKurz(d)}<br>Häkchen entfernen bei allem, was ihr schon zu Hause habt.</p>
+      <div class="row" style="margin-bottom:8px"><button class="btn small" data-a="alle">Alle</button><button class="btn small" data-a="keine">Keine</button></div>
+      <ul class="check-list card">
+        ${zutaten.map((z) => `<li><label>
+          <input type="checkbox" data-zutat="${z.id}" ${offen.has(norm(z.name)) ? '' : 'checked'}>
+          <span class="grow">${esc(z.name)}${offen.has(norm(z.name)) ? ' <span class="muted small">(schon im Warenkorb)</span>' : ''}</span>
+          <span class="muted small">${esc(z.menge || '')}</span>
+        </label></li>`).join('')}
+      </ul>`,
+    foot: `<button class="btn" data-close>Überspringen</button><span class="spacer"></span><button class="btn primary" data-a="in-korb"></button>`,
+    actions: {
+      alle: () => { sheetRoot.querySelectorAll('input[data-zutat]').forEach((c) => { c.checked = true; }); zaehlen(); },
+      keine: () => { sheetRoot.querySelectorAll('input[data-zutat]').forEach((c) => { c.checked = false; }); zaehlen(); },
+      'in-korb': async () => {
+        const ids = [...sheetRoot.querySelectorAll('input[data-zutat]:checked')].map((c) => c.dataset.zutat);
+        if (!ids.length) { closeSheet(); return; }
+        const rows = ids.map((id) => zutaten.find((z) => z.id === id)).map((z) => ({
+          haushalt_id: state.haushalt.id, name: z.name, menge: z.menge, plan_id: eintrag.id,
+          quelle: `${eintrag.titel} (${WT[d.getDay()]} ${fmtKurz(d)})`,
+        }));
+        try {
+          const neu = await db(sb.from('menu_einkauf').insert(rows).select());
+          state.einkauf.push(...neu);
+          closeSheet(); render(); toast(`${neu.length} Artikel im Warenkorb.`);
+        } catch (e) { fehler(e); }
+      },
+    },
+    onOpen: (root) => { root.addEventListener('change', zaehlen); zaehlen(); },
+  });
+}
+
 function eintragSheet(p) {
   if (!p) return;
   const g = p.gericht_id && gerichtById(p.gericht_id);
+  const imKorb = state.einkauf.filter((e) => e.plan_id === p.id);
   openSheet({
     titel: 'Eintrag bearbeiten',
     body: `
       <div class="field"><label for="e-titel">Gericht</label><input class="input" id="e-titel" value="${esc(p.titel)}"></div>
       <div class="field"><label for="e-datum">Datum</label><input class="input" id="e-datum" type="date" value="${p.datum}"></div>
-      <div class="field"><label for="e-notiz">Notiz</label><textarea class="input" id="e-notiz" placeholder="z.B. Beilage, wer kocht, Einkauf …">${esc(p.notiz || '')}</textarea></div>
+      <div class="field"><label for="e-notiz">Notiz</label><textarea class="input" id="e-notiz" placeholder="z.B. Beilage, wer kocht …">${esc(p.notiz || '')}</textarea></div>
       <label class="check"><input type="checkbox" id="e-erledigt" ${p.erledigt ? 'checked' : ''}> Gekocht / erledigt</label>
-      ${g ? `<p class="muted small">Verknüpft mit «${esc(g.name)}» aus den Gerichten.</p>` : `
+      ${g ? `
+        <p class="muted small">Verknüpft mit «${esc(g.name)}» aus den Gerichten.${imKorb.length ? ` ${imKorb.length} Artikel davon im Warenkorb.` : ''}</p>
+        ${zutatenVon(g.id).length ? '<button class="btn block" data-a="korb">🛒 Zutaten in den Warenkorb …</button>' : '<p class="muted small">Für dieses Gericht sind noch keine Zutaten erfasst (unter «Gerichte» ergänzen).</p>'}` : `
         <div class="card panel" style="padding:12px">
           <div class="small muted" style="margin-bottom:6px">Noch nicht in der Gerichte-Sammlung</div>
           <div class="row"><select class="input grow" id="e-kat">${katOptionen(null)}</select><button class="btn" data-a="sammeln">Speichern</button></div>
         </div>`}`,
     foot: `<button class="btn danger" data-a="loeschen">Löschen</button><span class="spacer"></span><button class="btn primary" data-a="speichern">Speichern</button>`,
     actions: {
+      korb: () => warenkorbSheet(p),
       speichern: async () => {
         const daten = {
           titel: document.getElementById('e-titel').value.trim() || p.titel,
@@ -674,8 +812,13 @@ function eintragSheet(p) {
         } catch (e) { fehler(e); }
       },
       loeschen: async () => {
+        // Noch nicht gekaufte Zutaten dieses Eintrags wieder aus dem Warenkorb nehmen
+        const offen = state.einkauf.filter((e) => e.plan_id === p.id && !e.erledigt);
+        if (offen.length && !confirm(`Eintrag löschen? ${offen.length} noch nicht gekaufte Artikel werden auch aus dem Warenkorb entfernt.`)) return;
         try {
+          if (offen.length) await db(sb.from('menu_einkauf').delete().in('id', offen.map((e) => e.id)));
           await db(sb.from('menu_plan').delete().eq('id', p.id));
+          state.einkauf = state.einkauf.filter((e) => !offen.includes(e));
           state.plan = state.plan.filter((x) => x.id !== p.id);
           closeSheet(); render(); toast('Eintrag gelöscht.');
         } catch (e) { fehler(e); }
@@ -693,24 +836,61 @@ function eintragSheet(p) {
   });
 }
 
-function naechsterFreierTag() {
+function naechsterFreierTag(g) {
   const belegt = new Set(state.plan.map((p) => p.datum));
   let d = new Date();
-  for (let i = 0; i < 60 && belegt.has(iso(d)); i++) d = addDays(d, 1);
+  for (let i = 0; i < 60 && (belegt.has(iso(d)) || (g && !passtZuTag(g, iso(d)))); i++) d = addDays(d, 1);
   return iso(d);
 }
 
 function gerichtSheet(g, vorschlagName = '') {
   const stats = statistik();
   const s = g && stats.get(g.id);
-  const kategorie = g ? g.kategorie_id : (state.filterKat && state.filterKat !== 'fav' ? state.filterKat : null);
+  const kategorie = g ? g.kategorie_id : (state.filterKat && katById(state.filterKat) ? state.filterKat : null);
   const verlauf = g ? state.plan.filter((p) => p.gericht_id === g.id).slice(-5).reverse() : [];
+  const wann = g?.wann || (['woche', 'wochenende'].includes(state.filterKat) ? state.filterKat : 'immer');
+  // Lokale, bearbeitbare Kopie der Zutatenliste
+  const zut = g ? zutatenVon(g.id).map((z) => ({ ...z })) : [];
+
+  const zutatenHtml = () => zut.length
+    ? zut.map((z, i) => `<div class="zutat-row">
+        <input class="input grow" data-z="${i}" data-f="name" value="${esc(z.name)}" placeholder="Zutat">
+        <input class="input menge" data-z="${i}" data-f="menge" value="${esc(z.menge || '')}" placeholder="Menge">
+        <button class="btn icon ghost" data-a="z-weg" data-i="${i}" aria-label="Entfernen">✕</button>
+      </div>`).join('')
+    : '<p class="muted small" style="margin:0 0 8px">Noch keine Zutaten erfasst.</p>';
+
+  const zutatHinzu = () => {
+    const n = document.getElementById('z-neu');
+    const m = document.getElementById('z-menge');
+    // Mehrere Zutaten auf einmal: durch Komma oder Zeilenumbruch getrennt
+    const namen = n.value.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+    if (!namen.length) return;
+    namen.forEach((name, i) => zut.push({ name, menge: namen.length === 1 || i === 0 ? m.value.trim() : '' }));
+    n.value = ''; m.value = '';
+    document.getElementById('z-liste').innerHTML = zutatenHtml();
+    n.focus();
+  };
+
   openSheet({
     titel: g ? 'Gericht' : 'Neues Gericht',
     body: `
       <div class="field"><label for="g-name">Name</label><input class="input" id="g-name" value="${esc(g ? g.name : vorschlagName)}"></div>
       <div class="field"><label for="g-kat">Kategorie</label><select class="input" id="g-kat">${katOptionen(kategorie)}</select></div>
-      <div class="field"><label for="g-notiz">Notiz / Zutaten / Rezept-Link</label><textarea class="input" id="g-notiz">${esc(g?.notiz || '')}</textarea></div>
+      <div class="field"><label>Geeignet für</label>
+        <div class="segmented" role="radiogroup">
+          ${Object.entries(WANN).map(([w, l]) => `<label><input type="radio" name="g-wann" value="${w}" ${w === wann ? 'checked' : ''}><span>${l}</span></label>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>Zutaten</label>
+        <div id="z-liste">${zutatenHtml()}</div>
+        <div class="zutat-row">
+          <input class="input grow" id="z-neu" placeholder="Neue Zutat (mehrere mit Komma)" enterkeyhint="done">
+          <input class="input menge" id="z-menge" placeholder="Menge" enterkeyhint="done">
+          <button class="btn icon" data-a="z-hinzu" aria-label="Zutat hinzufügen">＋</button>
+        </div>
+      </div>
+      <div class="field"><label for="g-notiz">Notiz / Rezept-Link</label><textarea class="input" id="g-notiz">${esc(g?.notiz || '')}</textarea></div>
       <label class="check"><input type="checkbox" id="g-fav" ${g?.favorit ? 'checked' : ''}> ★ Favorit</label>
       ${g ? `
         <div class="card panel" style="padding:12px;margin-bottom:12px">
@@ -718,54 +898,83 @@ function gerichtSheet(g, vorschlagName = '') {
           ${verlauf.length ? `<div class="small muted" style="margin-top:4px">Geplant/gegessen: ${verlauf.map((p) => fmtKurz(parseIso(p.datum))).join(', ')}</div>` : ''}
         </div>
         <div class="field"><label for="g-datum">Einplanen am</label>
-          <div class="row"><input class="input grow" id="g-datum" type="date" value="${naechsterFreierTag()}"><button class="btn" data-a="einplanen">Einplanen</button></div>
+          <div class="row"><input class="input grow" id="g-datum" type="date" value="${naechsterFreierTag(g)}"><button class="btn" data-a="einplanen">Einplanen</button></div>
         </div>` : ''}`,
     foot: `${g ? '<button class="btn danger" data-a="loeschen">Löschen</button>' : ''}<span class="spacer"></span><button class="btn primary" data-a="speichern">Speichern</button>`,
     actions: {
+      'z-hinzu': zutatHinzu,
+      'z-weg': (el) => { zut.splice(Number(el.dataset.i), 1); document.getElementById('z-liste').innerHTML = zutatenHtml(); },
       speichern: async () => {
         const name = document.getElementById('g-name').value.trim();
         if (!name) { toast('Bitte einen Namen eingeben.'); return; }
+        zutatHinzu(); // noch nicht übernommene Eingabe nicht verlieren
         try {
-          await gerichtSpeichern({
+          const row = await gerichtSpeichern({
             name,
             kategorie_id: document.getElementById('g-kat').value || null,
+            wann: sheetRoot.querySelector('input[name=g-wann]:checked').value,
             notiz: document.getElementById('g-notiz').value.trim() || null,
             favorit: document.getElementById('g-fav').checked,
           }, g?.id);
+          await zutatenSpeichern(row.id, zut);
           closeSheet(); render(); toast('Gespeichert.');
         } catch (e) { fehler(e); }
       },
       einplanen: async () => {
         const datum = document.getElementById('g-datum').value;
         if (!datum) return;
-        try {
-          await eintragHinzufuegen(datum, g.name, g.id);
-          closeSheet(); render();
-          const d = parseIso(datum);
-          toast(`Für ${WT_LANG[d.getDay()]}, ${fmtKurz(d)} geplant.`);
-        } catch (e) { fehler(e); }
+        try { nachEinplanen(await eintragHinzufuegen(datum, g.name, g.id)); } catch (e) { fehler(e); }
       },
       loeschen: async () => {
         if (!confirm(`«${g.name}» wirklich löschen? Bereits geplante Einträge bleiben erhalten.`)) return;
         try {
           await db(sb.from('menu_gerichte').delete().eq('id', g.id));
           state.gerichte = state.gerichte.filter((x) => x.id !== g.id);
+          state.zutaten = state.zutaten.filter((z) => z.gericht_id !== g.id);
           state.plan.forEach((p) => { if (p.gericht_id === g.id) p.gericht_id = null; });
           closeSheet(); render(); toast('Gelöscht.');
         } catch (e) { fehler(e); }
       },
     },
+    onOpen: (root) => {
+      root.addEventListener('input', (ev) => {
+        const i = ev.target.dataset.z;
+        if (i !== undefined) zut[Number(i)][ev.target.dataset.f] = ev.target.value;
+      });
+      for (const id of ['z-neu', 'z-menge']) {
+        root.querySelector('#' + id).addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') { ev.preventDefault(); zutatHinzu(); }
+        });
+      }
+    },
   });
+}
+
+/** Zutaten eines Gerichts mit der bearbeiteten Liste abgleichen. */
+async function zutatenSpeichern(gerichtId, liste) {
+  const vorher = zutatenVon(gerichtId);
+  const bleibend = liste.filter((z) => z.name.trim());
+  const behalteIds = new Set(bleibend.filter((z) => z.id).map((z) => z.id));
+  const weg = vorher.filter((z) => !behalteIds.has(z.id)).map((z) => z.id);
+  if (weg.length) await db(sb.from('menu_zutaten').delete().in('id', weg));
+  const upserts = bleibend.map((z, i) => ({
+    ...(z.id ? { id: z.id } : {}),
+    haushalt_id: state.haushalt.id, gericht_id: gerichtId,
+    name: z.name.trim(), menge: (z.menge || '').trim() || null, sortierung: i,
+  }));
+  const neu = upserts.length ? await db(sb.from('menu_zutaten').upsert(upserts, { defaultToNull: false }).select()) : [];
+  state.zutaten = state.zutaten.filter((z) => z.gericht_id !== gerichtId).concat(neu);
+  state.zutaten.sort((a, b) => a.sortierung - b.sortierung);
 }
 
 function zufallSheet() {
   const stats = statistik();
-  const tag = naechsterFreierTag();
-  const d = parseIso(tag);
-  const zeigen = () => vorschlaege(5).map((g) => pickItem(g, stats, 'suggest')).join('');
+  let tag = naechsterFreierTag();
+  const zeigen = () => vorschlaege(5, tag).map((g) => pickItem(g, stats, 'suggest')).join('') || '<div class="empty">Keine passenden Gerichte</div>';
   openSheet({
     titel: 'Was kochen wir?',
-    body: `<p class="muted small" style="margin-top:0">Gerichte, die ihr länger nicht mehr gegessen habt. Antippen plant es für den nächsten freien Tag ein (<strong>${WT_LANG[d.getDay()]}, ${fmtKurz(d)}</strong>).</p>
+    body: `<p class="muted small" style="margin-top:0">Gerichte, die ihr länger nicht mehr gegessen habt – passend zum gewählten Tag. Antippen plant es ein.</p>
+      <div class="field"><label for="z-tag">Für</label><input class="input" id="z-tag" type="date" value="${tag}"></div>
       <ul class="pick-list" id="zufall-liste">${zeigen()}</ul>`,
     foot: `<span class="spacer"></span><button class="btn" data-a="neu-mischen">🎲 Neu mischen</button>`,
     actions: {
@@ -773,12 +982,19 @@ function zufallSheet() {
       waehlen: async (el) => {
         const g = gerichtById(el.dataset.id);
         try {
-          await eintragHinzufuegen(tag, g.name, g.id);
-          state.weekStart = mondayOf(d);
+          const row = await eintragHinzufuegen(tag, g.name, g.id);
+          state.weekStart = mondayOf(parseIso(tag));
           state.tab = 'plan';
-          closeSheet(); render(); toast(`«${g.name}» für ${WT_LANG[d.getDay()]} geplant.`);
+          nachEinplanen(row);
         } catch (e) { fehler(e); }
       },
+    },
+    onOpen: (root) => {
+      root.querySelector('#z-tag').addEventListener('change', (ev) => {
+        if (!ev.target.value) return;
+        tag = ev.target.value;
+        document.getElementById('zufall-liste').innerHTML = zeigen();
+      });
     },
   });
 }

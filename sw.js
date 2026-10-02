@@ -1,6 +1,6 @@
 // Einfacher Service Worker: App-Hülle für Offline-Start cachen (Netzwerk zuerst).
 // Daten von Supabase werden nie gecacht.
-const CACHE = 'menuplan-v1';
+const CACHE = 'menuplan-v2';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'config.js', 'icon.svg', 'manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {

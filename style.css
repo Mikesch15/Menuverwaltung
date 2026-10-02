@@ -220,3 +220,50 @@ textarea.input { min-height: 72px; resize: vertical; }
   padding: 10px 16px; border-radius: 10px; font-size: .9rem; max-width: calc(100% - 32px);
 }
 .empty { text-align: center; color: var(--muted); padding: 24px 8px; }
+
+/* Wochenende / Woche */
+.tag {
+  display: inline-block; font-size: .7rem; font-weight: 600; vertical-align: 1px;
+  border-radius: 6px; padding: 0 6px; background: var(--surface-2); color: var(--muted);
+}
+.tag.wochenende { background: #fde9d7; color: #a2551a; }
+.tag.woche { background: #e2ecf8; color: #2d5f96; }
+@media (prefers-color-scheme: dark) {
+  .tag.wochenende { background: #3d2a1a; color: #f0b27a; }
+  .tag.woche { background: #1b2b3d; color: #8bb8e8; }
+}
+.segmented { display: flex; background: var(--surface-2); border-radius: 10px; padding: 3px; gap: 3px; }
+.segmented label { flex: 1; }
+.segmented input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented span {
+  display: block; text-align: center; padding: 8px 4px; border-radius: 8px; font-size: .88rem; cursor: pointer;
+}
+.segmented input:checked + span { background: var(--surface); box-shadow: var(--shadow); font-weight: 600; color: var(--accent); }
+.segmented input:focus-visible + span { outline: 2px solid var(--accent); }
+
+/* Zutaten */
+.zutat-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.zutat-row .grow { flex: 1; min-width: 0; }
+.input.menge { width: 92px; flex: none; }
+
+/* Warenkorb */
+.check-list { list-style: none; margin: 0; padding: 0; }
+.check-list label {
+  display: flex; align-items: center; gap: 10px; padding: 11px 14px;
+  border-top: 1px solid var(--border); cursor: pointer;
+}
+.check-list li:first-child label { border-top: 0; }
+.check-list input { width: 20px; height: 20px; accent-color: var(--accent); flex: none; }
+.check-list .grow { flex: 1; }
+.ek-list { list-style: none; margin: 0 0 12px; padding: 4px; }
+.ek { display: flex; align-items: center; gap: 8px; padding: 4px 6px; }
+.ek .title { flex: 1; min-width: 0; background: none; border: 0; text-align: left; padding: 6px 0; }
+.ek .note { display: block; font-size: .78rem; color: var(--muted); }
+.ek.done .title { color: var(--muted); text-decoration: line-through; }
+.ek.done .cb { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tabbar .ico { position: relative; }
+.tab-badge {
+  position: absolute; top: -4px; left: 100%; margin-left: -6px;
+  background: var(--danger); color: #fff; font-size: .65rem; font-weight: 700; line-height: 1;
+  border-radius: 99px; padding: 2px 5px; min-width: 16px; text-align: center;
+}
